@@ -147,7 +147,10 @@ export interface NewsItem {
     | "mock_draft"
     | "ranking"
     | "criticism"
-    | "legacy";
+    | "legacy"
+    | "power_ranking"
+    | "podcast"
+    | "social_buzz";
   disclaimer: string;
 }
 
@@ -195,6 +198,7 @@ export interface Player {
   postCareerRole?: string;
   hallOfFame: boolean;
   legacyTier?: LegacyTier;
+  narrativeTag: PlayerNarrativeTag;
 }
 
 export type LegacyTier =
@@ -269,12 +273,120 @@ export interface Journalist {
   specialty: "rumors" | "analysis" | "debate" | "rankings";
 }
 
-export interface Decision {
+export type SeasonPhase =
+  | "offseason"
+  | "preseason"
+  | "regular_season"
+  | "playoffs"
+  | "season_end";
+
+export const PHASE_LENGTH_WEEKS: Record<SeasonPhase, number> = {
+  offseason: 3,
+  preseason: 2,
+  regular_season: 12,
+  playoffs: 2,
+  season_end: 1,
+};
+
+export const PHASE_ORDER: SeasonPhase[] = [
+  "offseason",
+  "preseason",
+  "regular_season",
+  "playoffs",
+  "season_end",
+];
+
+export type NpcRole = "coach" | "owner" | "agent" | "teammate" | "journalist";
+
+export type NpcTemperament =
+  | "calm"
+  | "volatile"
+  | "demanding"
+  | "supportive"
+  | "calculating";
+
+export interface NpcPersona {
+  id: string;
+  name: string;
+  role: NpcRole;
+  teamId?: string;
+  strictness: number;
+  patience: number;
+  loyalty: number;
+  temperament: NpcTemperament;
+}
+
+export type PlayerNarrativeTag =
+  | "next_great_thing"
+  | "bust_watch"
+  | "most_hated"
+  | "mercenary"
+  | "locker_room_leader"
+  | "misunderstood_genius"
+  | "playoff_king"
+  | "ringless"
+  | "best_defender"
+  | "unproven"
+  | "fan_favorite";
+
+export const NARRATIVE_TAG_LABELS: Record<PlayerNarrativeTag, string> = {
+  next_great_thing: "O próximo grande nome",
+  bust_watch: "Sob suspeita de bust",
+  most_hated: "O jogador mais odiado",
+  mercenary: "O mercenário",
+  locker_room_leader: "O líder do vestiário",
+  misunderstood_genius: "O gênio incompreendido",
+  playoff_king: "O rei dos playoffs",
+  ringless: "O sem anel",
+  best_defender: "O maior defensor",
+  unproven: "Ainda sem rótulo",
+  fan_favorite: "Ídolo da torcida",
+};
+
+export interface EventChoiceResult {
+  player: Player;
+  news?: NewsItem[];
+  moraleDelta?: number;
+}
+
+export interface EventChoice {
   id: string;
   label: string;
+  hint?: string;
+  apply: (player: Player, ctx: EventContext) => EventChoiceResult;
+}
+
+export type GameEventCategory =
+  | "coach"
+  | "media"
+  | "sponsor"
+  | "injury"
+  | "locker_room"
+  | "agent"
+  | "family"
+  | "front_office"
+  | "milestone"
+  | "social";
+
+export interface GameEvent {
+  id: string;
+  category: GameEventCategory;
+  sourceName: string;
+  sourceOutlet?: string;
+  title: string;
   description: string;
-  availablePhases: CareerPhase[];
-  effects: (player: Player) => Player;
+  choices: EventChoice[];
+  week: number;
+  year: number;
+}
+
+export interface EventContext {
+  team?: Team;
+  coach?: NpcPersona;
+  agent?: NpcPersona;
+  owner?: NpcPersona;
+  year: number;
+  week: number;
 }
 
 export interface GameState {
@@ -282,5 +394,11 @@ export interface GameState {
   teams: Team[];
   colleges: College[];
   year: number;
+  week: number;
+  phase: SeasonPhase;
   history: NewsItem[];
+  pendingEvents: GameEvent[];
+  coach?: NpcPersona;
+  agent?: NpcPersona;
+  owner?: NpcPersona;
 }

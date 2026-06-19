@@ -12,6 +12,8 @@ export const OUTLETS: MediaOutlet[] = [
   { id: "cbs", name: "CBS Sports", tone: "analytical" },
   { id: "si", name: "Sports Illustrated", tone: "analytical" },
   { id: "ringer", name: "The Ringer", tone: "insider" },
+  { id: "twitter", name: "X (Twitter)", tone: "sensational" },
+  { id: "reddit", name: "Reddit r/nba", tone: "sensational" },
 ];
 
 export const JOURNALISTS: Journalist[] = [

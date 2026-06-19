@@ -95,6 +95,46 @@ export function generateBreakingNews(player: Player, headline: string, body: str
   };
 }
 
+export function generatePowerRankingNews(player: Player, rank: number, year: number): NewsItem {
+  const outlet = OUTLETS.find((o) => o.id === "athletic") ?? OUTLETS[0];
+  return {
+    id: newsId(),
+    year,
+    outlet: outlet.name,
+    headline: `Power Rankings simulado: ${player.name} aparece na posição #${rank} da liga`,
+    body: `Em uma classificação fictícia inspirada em power rankings de mídia esportiva, ${player.name} figura entre os destaques individuais da semana.`,
+    category: "power_ranking",
+    disclaimer: NARRATIVE_DISCLAIMER,
+  };
+}
+
+export function generatePodcastNews(player: Player, topic: string, year: number): NewsItem {
+  const journalist = pickJournalist("analysis");
+  return {
+    id: newsId(),
+    year,
+    outlet: "The Ringer (podcast)",
+    author: journalist.name,
+    headline: `Podcast simulado: o futuro de ${player.name} em discussão`,
+    body: `Em um episódio fictício inspirado em formatos de podcast esportivo, comentaristas debatem ${topic.toLowerCase()} envolvendo ${player.name}.`,
+    category: "podcast",
+    disclaimer: NARRATIVE_DISCLAIMER,
+  };
+}
+
+export function generateSocialBuzzNews(player: Player, content: string, year: number): NewsItem {
+  const outlet = pick(OUTLETS.filter((o) => o.id === "twitter" || o.id === "reddit"));
+  return {
+    id: newsId(),
+    year,
+    outlet: outlet.name,
+    headline: `Burburinho simulado nas redes sobre ${player.name}`,
+    body: `Postagens fictícias inspiradas no tom de redes sociais: "${content}" — repercussão dividida entre torcedores simulados.`,
+    category: "social_buzz",
+    disclaimer: NARRATIVE_DISCLAIMER,
+  };
+}
+
 export function generateLegacyNews(player: Player, year: number): NewsItem {
   const journalist = pickJournalist("analysis");
   const outlet = OUTLETS.find((o) => o.id === journalist.outletId)!;

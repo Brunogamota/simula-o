@@ -105,5 +105,6 @@ export function createPlayer(input: CreatePlayerInput): Player {
     newsFeed: [],
     retired: false,
     hallOfFame: false,
+    narrativeTag: "unproven",
   };
 }

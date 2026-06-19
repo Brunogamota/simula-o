@@ -1,25 +1,42 @@
-import { College, NewsItem, Player, Team } from "@/types";
+import {
+  College,
+  EventContext,
+  GameEvent,
+  NewsItem,
+  NpcPersona,
+  Player,
+  SeasonPhase,
+  Team,
+  PHASE_LENGTH_WEEKS,
+  PHASE_ORDER,
+} from "@/types";
 import { COLLEGES } from "@/data/colleges";
 import { TEAMS } from "@/data/teams";
 import { chance, weightedPick } from "@/lib/random";
 import { simulateSeason, progressAttributes } from "./season";
 import { generateDraftProfile, resolveDraftResult } from "./draft";
 import { rookieScaleContract, calculateContractOffer } from "./contracts";
-import { applyAnnualSalary, applySponsorshipIncome, maybeGenerateSponsorship, recalcNetWorth } from "./finance";
+import {
+  applyAnnualSalary,
+  applySponsorshipIncome,
+  maybeGenerateSponsorship,
+  recalcNetWorth,
+} from "./finance";
 import {
   generateBreakingNews,
   generateDebateNews,
   generateDraftStockNews,
   generateLegacyNews,
+  generatePodcastNews,
+  generatePowerRankingNews,
   generateSeasonRecapNews,
+  generateSocialBuzzNews,
   generateTradeRumorNews,
 } from "./media";
 import { calculateLegacyTier, checkHallOfFame } from "./legacy";
-
-export interface AdvanceResult {
-  player: Player;
-  news: NewsItem[];
-}
+import { generateWeeklyEvents } from "./events";
+import { generateTeamStaff } from "./npc";
+import { computeNarrativeTag } from "./storylines";
 
 function pickCollege(): College {
   const weighted = COLLEGES.map((c) => ({
@@ -57,12 +74,15 @@ function checkAwards(player: Player): string[] {
   return awards;
 }
 
-export function advanceYear(player: Player, year: number): AdvanceResult {
+/**
+ * Resolve a virada de ano de carreira (high school -> college -> draft -> NBA
+ * -> aposentadoria). É chamado uma vez por ciclo, no fechamento da fase
+ * "season_end", para consolidar tudo que aconteceu nas semanas anteriores.
+ */
+function finalizeYear(player: Player, year: number): { player: Player; news: NewsItem[] } {
   const news: NewsItem[] = [];
 
-  if (player.retired) {
-    return { player, news };
-  }
+  if (player.retired) return { player, news };
 
   if (player.phase === "high_school") {
     let updated = progressAttributes(player);
@@ -82,8 +102,7 @@ export function advanceYear(player: Player, year: number): AdvanceResult {
   }
 
   if (player.phase === "college") {
-    const collegeTeamPseudo: Team | undefined = undefined;
-    const { player: afterSeason, season } = simulateSeason(player, collegeTeamPseudo, year);
+    const { player: afterSeason, season } = simulateSeason(player, undefined, year);
     let updated = progressAttributes(afterSeason);
     news.push(generateSeasonRecapNews(updated, season));
 
@@ -96,7 +115,7 @@ export function advanceYear(player: Player, year: number): AdvanceResult {
   if (player.phase === "draft") {
     const profile = generateDraftProfile(player);
     const result = resolveDraftResult(profile);
-    news.push(generateDraftStockNews(player, profile.mockRank ?? 60, year));
+    news.push(generateDraftStockNews(player, profile.mockRank, year));
 
     let updated: Player = {
       ...player,
@@ -173,7 +192,6 @@ export function advanceYear(player: Player, year: number): AdvanceResult {
       updated = { ...updated, awardsCareer: [...updated.awardsCareer, ...awards] };
     }
     news.push(generateSeasonRecapNews(updated, season));
-
     if (chance(30)) news.push(generateTradeRumorNews(updated, year));
     if (chance(20)) news.push(generateDebateNews(updated, "Status de superstar", year));
 
@@ -183,9 +201,7 @@ export function advanceYear(player: Player, year: number): AdvanceResult {
     }
 
     const currentContract = updated.contracts[updated.contracts.length - 1];
-    const grossSalary = currentContract?.annualSalary[
-      year - currentContract.signedAtYear
-    ] ?? 1;
+    const grossSalary = currentContract?.annualSalary[year - currentContract.signedAtYear] ?? 1;
     let finance = applyAnnualSalary(updated.finance, grossSalary);
     finance = applySponsorshipIncome(finance, updated.sponsorships);
     finance = { ...finance, netWorth: recalcNetWorth(finance) };
@@ -198,6 +214,7 @@ export function advanceYear(player: Player, year: number): AdvanceResult {
     }
 
     updated = progressAttributes(updated);
+    updated = { ...updated, narrativeTag: computeNarrativeTag(updated) };
 
     if (updated.age >= 38 || (updated.age >= 33 && updated.marketValue < 15 && chance(40))) {
       updated = { ...updated, phase: "retired", retired: true, retiredYear: year };
@@ -219,6 +236,110 @@ export function advanceYear(player: Player, year: number): AdvanceResult {
   }
 
   return { player, news };
+}
+
+export interface WeekState {
+  player: Player;
+  year: number;
+  week: number;
+  phase: SeasonPhase;
+  coach?: NpcPersona;
+  agent?: NpcPersona;
+  owner?: NpcPersona;
+}
+
+export interface WeekResult extends WeekState {
+  news: NewsItem[];
+  events: GameEvent[];
+}
+
+function nextPhase(phase: SeasonPhase): SeasonPhase {
+  const idx = PHASE_ORDER.indexOf(phase);
+  return PHASE_ORDER[(idx + 1) % PHASE_ORDER.length];
+}
+
+/** Garante que o jogador tenha um técnico/dono vinculados ao time atual. */
+export function ensureStaff(state: WeekState): WeekState {
+  if (!state.player.currentTeamId) return state;
+  if (state.coach && state.coach.teamId === state.player.currentTeamId) return state;
+
+  const team = TEAMS.find((t) => t.id === state.player.currentTeamId);
+  if (!team) return state;
+  const { coach, owner } = generateTeamStaff(team);
+  return { ...state, coach, owner };
+}
+
+/**
+ * Avança exatamente uma semana de carreira. Gera eventos contextuais para a
+ * semana corrente; ao final de uma fase, dispara a consolidação pesada
+ * (temporada, draft, contrato, aposentadoria) apenas quando a fase
+ * "season_end" é alcançada.
+ */
+export function advanceWeek(state: WeekState): WeekResult {
+  const news: NewsItem[] = [];
+  let player = state.player;
+
+  if (player.retired) {
+    return { ...state, news, events: [] };
+  }
+
+  const team = TEAMS.find((t) => t.id === player.currentTeamId);
+  const ctx: EventContext = {
+    team,
+    coach: state.coach,
+    agent: state.agent,
+    owner: state.owner,
+    year: state.year,
+    week: state.week,
+  };
+
+  const events = generateWeeklyEvents(player, ctx, state.phase);
+
+  if (player.phase === "nba" && (state.phase === "regular_season" || state.phase === "playoffs")) {
+    if (chance(15)) {
+      news.push(generatePowerRankingNews(player, Math.max(1, Math.round((100 - player.marketValue) / 4)), state.year));
+    }
+    if (chance(10)) {
+      news.push(generatePodcastNews(player, "Próximos passos da carreira", state.year));
+    }
+    if (chance(20)) {
+      news.push(
+        generateSocialBuzzNews(
+          player,
+          player.morale > 60 ? `${player.name} está jogando muito essa semana` : `${player.name} precisa melhorar`,
+          state.year
+        )
+      );
+    }
+  }
+
+  let week = state.week + 1;
+  let phase = state.phase;
+  let year = state.year;
+
+  if (week > PHASE_LENGTH_WEEKS[phase]) {
+    week = 1;
+    let advancedPhase = nextPhase(phase);
+
+    if (phase === "regular_season" && advancedPhase === "playoffs") {
+      const qualifies = team ? chance(35 + team.winningHistory * 0.35) : chance(40);
+      if (!qualifies) advancedPhase = "season_end";
+    }
+
+    if (advancedPhase === "season_end") {
+      const finalized = finalizeYear(player, year);
+      player = finalized.player;
+      news.push(...finalized.news);
+    }
+
+    if (phase === "season_end") {
+      year += 1;
+    }
+
+    phase = advancedPhase;
+  }
+
+  return { player, year, week, phase, coach: state.coach, agent: state.agent, owner: state.owner, news, events };
 }
 
 export function getTeamById(id: string | null | undefined): Team | undefined {

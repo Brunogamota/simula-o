@@ -1,11 +1,19 @@
-import { Player } from "@/types";
+import { NewsItem, NpcPersona, Player, SeasonPhase } from "@/types";
 
-const STORAGE_KEY = "simulao_save_v1";
+const STORAGE_KEY = "simulao_save_v2";
 
+// pendingEvents não é persistido: GameEvent.choices contém funções (apply),
+// que não sobrevivem a JSON.stringify. Eventos em aberto são perdidos ao
+// recarregar a página — uma limitação aceitável para o MVP.
 export interface SaveData {
   player: Player;
   year: number;
-  newsFeed: import("@/types").NewsItem[];
+  week: number;
+  phase: SeasonPhase;
+  coach?: NpcPersona;
+  agent?: NpcPersona;
+  owner?: NpcPersona;
+  newsFeed: NewsItem[];
 }
 
 export function saveGame(data: SaveData): void {
